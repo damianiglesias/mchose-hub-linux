@@ -1,0 +1,180 @@
+{
+  "_comment": [
+    "PLANTILLA DE RATÓN MCHOSE. Todos los bytes, comandos y offsets de este archivo son ILUSTRATIVOS:",
+    "están inventados para demostrar el formato. NO son el protocolo real de ningún modelo.",
+    "Para un modelo real: 1) mchose-hub list --all  → anota VID, PID y usage page/interfaz;",
+    "2) captura los payloads (README §6 'Guía de sniffing'); 3) sustitúyelos aquí; 4) mchose-hub validate;",
+    "5) pon device.enabled a true y device.verified a true cuando lo hayas probado con tu hardware;",
+    "6) sudo mchose-hub udev --install  (regenera las reglas udev con tu VID).",
+    "",
+    "Convenciones: el frame mide report_length bytes y su byte 0 es el Report ID (se antepone solo).",
+    "'request' son los bytes SIGUIENTES: hex literal (0A) o marcadores {param}. El resto se rellena con 00.",
+    "Los offsets del checksum y de las respuestas cuentan desde el byte 0 (el Report ID)."
+  ],
+
+  "schema_version": 1,
+
+  "device": {
+    "id": "mchose-mouse-template",
+    "name": "MCHOSE Mouse (plantilla)",
+    "kind": "mouse",
+    "enabled": false,
+    "verified": false,
+    "author": "tu-usuario-de-github",
+    "notes": "Plantilla. Cambia enabled a true cuando hayas verificado los payloads con tu hardware."
+  },
+
+  "match": {
+    "_note": "Un mismo ratón suele tener varios PID (cable, dongle 2.4G, Bluetooth): lístalos todos. usage_page/interface_number eligen la interfaz de CONFIGURACIÓN (no la del puntero).",
+    "vendor_id": "0x0000",
+    "product_ids": ["0x0000"],
+    "usage_page": "0xFF02",
+    "usage": null,
+    "interface_number": null
+  },
+
+  "transport": {
+    "write_mode": "feature_report",
+    "read_mode": "feature_report",
+    "report_id": "0x08",
+    "report_length": 17,
+    "response_timeout_ms": 500,
+    "retries": 2,
+    "wake_delay_ms": 300,
+    "inter_command_delay_ms": 20,
+    "checksum": { "algorithm": "sub8", "init": "0x55", "start": 0, "end": 16, "store_at": 16 }
+  },
+
+  "commands": {
+    "get_battery": {
+      "description": "Lee el porcentaje de batería y si está cargando.",
+      "request": "04",
+      "response": {
+        "expect": { "1": "0x04" },
+        "fields": {
+          "battery_percent": { "offset": 6, "type": "u8" },
+          "charging": { "offset": 7, "type": "u8", "mask": "0x01", "bool": true }
+        }
+      }
+    },
+
+    "set_dpi": {
+      "description": "Fija el DPI de una ranura (stage). Aquí el valor crudo = DPI/50 − 1 en 16 bits little-endian.",
+      "request": "07 {slot} {dpi}",
+      "params": {
+        "slot": { "type": "u8", "min": 0, "max": 5, "default": 0 },
+        "dpi": {
+          "type": "u16le", "min": 400, "max": 26000, "step": 100, "default": 800, "unit": "DPI",
+          "linear": { "mul": 1, "div": 50, "add": -1 }
+        }
+      }
+    },
+
+    "set_polling_rate": {
+      "description": "Frecuencia de sondeo. Cada opción lleva su byte crudo ('wire').",
+      "request": "09 {rate}",
+      "params": {
+        "rate": {
+          "type": "u8", "default": 1000, "unit": "Hz",
+          "choices": [
+            { "label": "125 Hz",  "value": 125,  "wire": "0x08" },
+            { "label": "250 Hz",  "value": 250,  "wire": "0x04" },
+            { "label": "500 Hz",  "value": 500,  "wire": "0x02" },
+            { "label": "1000 Hz", "value": 1000, "wire": "0x01" },
+            { "label": "2000 Hz", "value": 2000, "wire": "0x10" },
+            { "label": "4000 Hz", "value": 4000, "wire": "0x20" },
+            { "label": "8000 Hz", "value": 8000, "wire": "0x40" }
+          ]
+        }
+      }
+    },
+
+    "set_debounce": {
+      "description": "Tiempo de rebote de los botones principales, en milisegundos.",
+      "request": "0A {ms}",
+      "params": {
+        "ms": { "type": "u8", "min": 0, "max": 20, "step": 1, "default": 4, "unit": "ms" }
+      }
+    },
+
+    "set_lod": {
+      "description": "Distancia de despegue (Lift-Off Distance).",
+      "request": "0B {level}",
+      "params": {
+        "level": {
+          "type": "u8", "default": 1,
+          "choices": [
+            { "label": "Baja (≈1 mm)",  "value": 1, "wire": "0x01" },
+            { "label": "Alta (≈2 mm)",  "value": 2, "wire": "0x02" }
+          ]
+        }
+      }
+    },
+
+    "set_rgb": {
+      "description": "Iluminación. Un solo paquete lleva efecto + color + brillo + velocidad (la GUI reenvía los cuatro).",
+      "request": "0C {effect} {color} {brightness} {speed}",
+      "params": {
+        "effect": {
+          "type": "u8", "default": 1,
+          "choices": [
+            { "label": "Apagado",           "value": 0, "wire": "0x00" },
+            { "label": "Fijo",              "value": 1, "wire": "0x01" },
+            { "label": "Respiración",       "value": 2, "wire": "0x02" },
+            { "label": "Ciclo de colores",  "value": 3, "wire": "0x03" }
+          ]
+        },
+        "color":      { "type": "rgb", "rgb_order": "rgb", "default": "#00aaff" },
+        "brightness": { "type": "u8", "min": 0, "max": 100, "step": 5, "default": 100, "unit": "%",
+                        "linear": { "mul": 255, "div": 100, "add": 0 } },
+        "speed":      { "type": "u8", "min": 1, "max": 5, "step": 1, "default": 3 }
+      }
+    },
+
+    "set_button": {
+      "description": "Asigna una acción a un botón físico (0 = izquierdo, 1 = derecho, 2 = central, 3 = atrás, 4 = adelante).",
+      "request": "0D {button} {action}",
+      "params": {
+        "button": { "type": "u8", "min": 0, "max": 7, "default": 0 },
+        "action": {
+          "type": "u8", "default": 1,
+          "choices": [
+            { "label": "Clic izquierdo", "value": 1, "wire": "0x01" },
+            { "label": "Clic derecho",   "value": 2, "wire": "0x02" },
+            { "label": "Clic central",   "value": 3, "wire": "0x03" },
+            { "label": "Atrás",          "value": 4, "wire": "0x04" },
+            { "label": "Adelante",       "value": 5, "wire": "0x05" },
+            { "label": "Ciclar DPI",     "value": 6, "wire": "0x06" },
+            { "label": "Desactivado",    "value": 0, "wire": "0x00" }
+          ]
+        }
+      }
+    }
+  },
+
+  "features": [
+    { "id": "battery", "widget": "battery", "label": "Batería", "command": "get_battery",
+      "percent": "battery_percent", "charging": "charging", "poll_seconds": 60 },
+
+    { "id": "dpi", "group": "Sensor", "label": "DPI (ranura 1)", "command": "set_dpi",
+      "param": "dpi", "fixed": { "slot": 0 } },
+    { "id": "polling", "group": "Sensor", "label": "Frecuencia de sondeo", "command": "set_polling_rate", "param": "rate" },
+    { "id": "lod", "group": "Sensor", "label": "Distancia de despegue (LOD)", "command": "set_lod", "param": "level" },
+    { "id": "debounce", "group": "Botones", "label": "Tiempo de rebote", "command": "set_debounce", "param": "ms" },
+
+    { "id": "rgb_effect", "group": "Iluminación", "label": "Efecto", "command": "set_rgb", "param": "effect" },
+    { "id": "rgb_color", "group": "Iluminación", "label": "Color", "command": "set_rgb", "param": "color" },
+    { "id": "rgb_brightness", "group": "Iluminación", "label": "Brillo", "command": "set_rgb", "param": "brightness" },
+    { "id": "rgb_speed", "group": "Iluminación", "label": "Velocidad", "command": "set_rgb", "param": "speed" },
+
+    { "id": "buttons", "widget": "mapping", "group": "Asignación de botones", "label": "Botones",
+      "command": "set_button", "param": "action",
+      "slots": [
+        { "label": "Botón izquierdo",  "fixed": { "button": 0 }, "default": 1 },
+        { "label": "Botón derecho",    "fixed": { "button": 1 }, "default": 2 },
+        { "label": "Botón central",    "fixed": { "button": 2 }, "default": 3 },
+        { "label": "Lateral atrás",    "fixed": { "button": 3 }, "default": 4 },
+        { "label": "Lateral adelante", "fixed": { "button": 4 }, "default": 5 }
+      ] }
+  ]
+}
