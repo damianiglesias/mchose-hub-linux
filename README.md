@@ -1,29 +1,37 @@
 # MCHOSE Linux Hub
 
-A GTK4/libadwaita application to configure MCHOSE gaming mice on Linux — DPI, polling rate, lift-off distance, debounce, sleep, RGB and battery level. No Windows driver, no browser required.
+A GTK4/libadwaita application to configure MCHOSE gaming mice on Linux — DPI, polling rate, lift-off distance, debounce, sleep and battery level. No Windows driver, no browser required.
 
-> Developed and tested on an **MCHOSE A7 V2 Pro** (`5253:1020`, 2.4G 8K dongle). Other models in the L7 / M7 / A7 / K7 family should work — open an issue with the output of `mchose-hub list --all` if yours does not appear.
+## Compatibility
+
+This app uses [alexfrih/mchose-linux](https://github.com/alexfrih/mchose-linux) as its HID backend. Any mouse that works with that CLI will work here too:
+
+**L7** · **L7 Pro** · **L7 Ultra** · **L7 Pro+** · **M7** · **M7 Pro** · **M7 Ultra** · **A7** · **A7 Pro** · **A7 Ultra** · **A7 V2** · **K7 Ultra** · **AX5** · **A5**
+
+Developed and tested on an **MCHOSE A7 V2 Pro** (`5253:1020`, 2.4G 8K dongle).
+
+Not supported: the G3 family (different protocol).
 
 ## Requirements
 
 - Linux with GTK 4 + libadwaita 1
 - Python ≥ 3.9
-- [`mchose-linux`](https://github.com/alexfrih/mchose-linux) installed (provides the HID backend)
+- [alexfrih/mchose-linux](https://github.com/alexfrih/mchose-linux) installed
 
 ## Installation
 
 ```bash
-# 1. Install the HID backend (once)
+# 1. Install the HID backend
 git clone https://github.com/alexfrih/mchose-linux ~/mchose-linux
 cd ~/mchose-linux && ./install.sh
 
-# 2. Install this application
+# 2. Install this app
 git clone https://github.com/YOUR_USERNAME/mchose-linux-hub
 cd mchose-linux-hub
 bash install.sh
 ```
 
-The installer handles Python dependencies, udev rules (hardware access without root) and creates a desktop entry in your application launcher.
+The installer handles Python dependencies, udev rules and creates a desktop entry.
 
 ## Usage
 
@@ -47,7 +55,7 @@ If the dongle is unresponsive on startup, unplug it and plug it back in. The app
 
 ## Credits
 
-The HID protocol was reverse-engineered by [alexfrih/mchose-linux](https://github.com/alexfrih/mchose-linux), which also provides the CLI backend. This project adds the GTK4/libadwaita graphical interface on top of it.
+HID protocol reverse-engineered by [alexfrih/mchose-linux](https://github.com/alexfrih/mchose-linux). This project adds the GTK4/libadwaita GUI on top of it.
 
 ## License
 
