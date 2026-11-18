@@ -26,7 +26,7 @@ git clone https://github.com/alexfrih/mchose-linux ~/mchose-linux
 cd ~/mchose-linux && ./install.sh
 
 # 2. Install this app
-git clone https://github.com/damianiglesias/mchose-linux-hub
+git clone https://github.com/YOUR_USERNAME/mchose-linux-hub
 cd mchose-linux-hub
 bash install.sh
 ```
