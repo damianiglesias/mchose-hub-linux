@@ -121,24 +121,6 @@ class CliDeviceView(Adw.PreferencesPage):
                                               "min (0 = desactivado)", 0, 30, 1)
         self.add(g_sleep)
 
-        # --- Presets ---
-        g_presets = Adw.PreferencesGroup(title="Presets")
-        # Fila: nombre + botón guardar
-        self._preset_entry = Gtk.Entry(placeholder_text="Nombre del preset…",
-                                       hexpand=True, valign=Gtk.Align.CENTER)
-        save_btn = Gtk.Button(label="Guardar", valign=Gtk.Align.CENTER)
-        save_btn.add_css_class("suggested-action")
-        save_btn.connect("clicked", self._on_save_preset)
-        new_row = _row("Guardar estado actual")
-        new_row.add_suffix(self._preset_entry)
-        new_row.add_suffix(save_btn)
-        g_presets.add(new_row)
-        # Lista de presets guardados (se rellena en _refresh_presets)
-        self._presets_group = g_presets
-        self._preset_rows: Dict[str, Adw.ActionRow] = {}
-        self.add(g_presets)
-        self._refresh_presets()
-
         # --- Conectar señales DESPUÉS de construir ---
         self._building = False
         self._stage_row.connect("notify::selected", self._on_stage_changed)
@@ -307,47 +289,6 @@ class CliDeviceView(Adw.PreferencesPage):
         else:
             log.exception("Error inesperado", exc_info=exc)
             self._toast(f"Error: {exc}")
-
-    # -- presets ----------------------------------------------------------
-    def _refresh_presets(self) -> None:
-        # Eliminar filas anteriores
-        for row in self._preset_rows.values():
-            self._presets_group.remove(row)
-        self._preset_rows.clear()
-        for name in self._backend.list_presets():
-            row = _row(name)
-            load_btn = Gtk.Button(label="Cargar", valign=Gtk.Align.CENTER)
-            del_btn  = Gtk.Button(label="Borrar",  valign=Gtk.Align.CENTER)
-            del_btn.add_css_class("destructive-action")
-            load_btn.connect("clicked", self._on_load_preset, name)
-            del_btn.connect("clicked",  self._on_delete_preset, name)
-            row.add_suffix(load_btn)
-            row.add_suffix(del_btn)
-            self._presets_group.add(row)
-            self._preset_rows[name] = row
-
-    def _on_save_preset(self, _btn) -> None:
-        name = self._preset_entry.get_text().strip()
-        if not name:
-            self._toast("Escribe un nombre para el preset")
-            return
-        def do():
-            self._backend.save_preset(name)
-        def ok(_):
-            self._preset_entry.set_text("")
-            self._refresh_presets()
-            self._toast(f"Preset '{name}' guardado")
-        _worker(do, ok, self._on_error)
-
-    def _on_load_preset(self, _btn, name: str) -> None:
-        _worker(lambda: self._backend.load_preset(name),
-                lambda _: (self._refresh(), self._toast(f"Preset '{name}' aplicado")),
-                self._on_error)
-
-    def _on_delete_preset(self, _btn, name: str) -> None:
-        self._backend.delete_preset(name)
-        self._refresh_presets()
-        self._toast(f"Preset '{name}' eliminado")
 
     def shutdown(self) -> None:
         for src in list(self._pending.values()):
