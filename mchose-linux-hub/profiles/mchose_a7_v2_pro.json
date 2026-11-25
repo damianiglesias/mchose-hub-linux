@@ -1,0 +1,968 @@
+{
+  "_comment": [
+    "MCHOSE A7 V2 Pro — Protocolo L7/A7 verificado (alexfrih/mchose-linux, PROTOCOL.md 2026-08-28).",
+    "El mismo VID 5253 y los mismos comandos funcionan en: L7, L7 Pro, L7 Ultra, M7, A7, A7 Pro, A7 Ultra, K7.",
+    "Protocolo: feature reports 0x11 (20 B) y 0x12 (64 B); payload completo invertido ^ 0xFF (sin checksum).",
+    "El byte 0 de la respuesta es el Report ID (sin invertir); byte 1 = cmd ^ 0xFF (echo de verificación).",
+    "VID:PID: 5253:1020 = dongle 2.4G / 8K  |  3837:4018 = cable  (el driver los trata igual).",
+    "Para añadir el Bluetooth: 'BT:1020' suele ser el mismo PID pero en bus 0005."
+  ],
+  "schema_version": 1,
+  "device": {
+    "id": "mchose-a7-v2-pro",
+    "name": "MCHOSE A7 V2 Pro",
+    "kind": "mouse",
+    "enabled": true,
+    "verified": true,
+    "author": "alexfrih (protocolo) + mchose-linux-hub (perfil)",
+    "notes": "Verificado con L7 Pro 5253:1020, firmware 5.12.2.1. DPI/polling/LOD/sensor/debounce/sleep/RGB/batería."
+  },
+  "match": {
+    "ids": [
+      "5253:1020",
+      "3837:4018"
+    ],
+    "_note_dongle2": "si tienes un dongle de 2000 Hz (3837:4018 con otro USB ID), añádelo aquí y en udev",
+    "usage_page": "0xFF01",
+    "usage": null,
+    "interface_number": 2
+  },
+  "transport": {
+    "_note": "Feature reports, sin checksum. Todo el payload (bytes 1 en adelante) va XOR 0xFF.",
+    "write_mode": "output_report",
+    "read_mode": "input_report",
+    "report_id": "0x11",
+    "report_length": 65,
+    "response_timeout_ms": 3000,
+    "retries": 8,
+    "wake_delay_ms": 300,
+    "inter_command_delay_ms": 25,
+    "xor_mask": "0xFF"
+  },
+  "commands": {
+    "get_battery": {
+      "description": "Batería. write(0x12/0x06), leer por read() hasta rid=0x12.",
+      "report_id": "0x12",
+      "report_length": 65,
+      "request": "06",
+      "response": {
+        "required": false,
+        "expect": {
+          "0": "0x12",
+          "1": "0x06"
+        },
+        "fields": {
+          "battery_percent": {
+            "offset": 11,
+            "type": "u8"
+          },
+          "charging": {
+            "offset": 12,
+            "type": "u8",
+            "bool": true
+          }
+        }
+      }
+    },
+    "get_rgb": {
+      "description": "Lee la configuración RGB. CMD 0x11/0x1B.",
+      "request": "1B",
+      "response": {
+        "required": false,
+        "expect": {
+          "1": "0x1B"
+        },
+        "fields": {
+          "rgb_enable": {
+            "offset": 2,
+            "type": "u8",
+            "bool": true
+          },
+          "rgb_effect_id": {
+            "offset": 3,
+            "type": "u8"
+          },
+          "rgb_brightness": {
+            "offset": 5,
+            "type": "u8"
+          },
+          "rgb_speed": {
+            "offset": 8,
+            "type": "u8"
+          },
+          "rgb_r": {
+            "offset": 10,
+            "type": "u8"
+          },
+          "rgb_g": {
+            "offset": 11,
+            "type": "u8"
+          },
+          "rgb_b": {
+            "offset": 12,
+            "type": "u8"
+          }
+        }
+      }
+    },
+    "set_rgb": {
+      "description": "Iluminación RGB. CMD 0x11/0x2B.",
+      "request": "2B {enable} {effect} {use_independent} {brightness} {light_setting} {close_time} {speed} {random_color} {color} {color2} {change_direct}",
+      "params": {
+        "enable": {
+          "type": "u8",
+          "default": 1
+        },
+        "effect": {
+          "type": "u8",
+          "default": 1,
+          "choices": [
+            {
+              "label": "Apagado",
+              "value": 0,
+              "wire": "0x00"
+            },
+            {
+              "label": "Fijo",
+              "value": 1,
+              "wire": "0x01"
+            },
+            {
+              "label": "Respiración",
+              "value": 2,
+              "wire": "0x02"
+            },
+            {
+              "label": "Ciclo de color",
+              "value": 3,
+              "wire": "0x03"
+            },
+            {
+              "label": "Neon",
+              "value": 4,
+              "wire": "0x04"
+            },
+            {
+              "label": "Ola",
+              "value": 5,
+              "wire": "0x05"
+            },
+            {
+              "label": "Flash",
+              "value": 6,
+              "wire": "0x06"
+            }
+          ]
+        },
+        "use_independent": {
+          "type": "u8",
+          "default": 0
+        },
+        "brightness": {
+          "type": "u8",
+          "min": 0,
+          "max": 100,
+          "step": 10,
+          "default": 100,
+          "unit": "%",
+          "linear": {
+            "mul": 100,
+            "div": 100,
+            "add": 0
+          }
+        },
+        "light_setting": {
+          "type": "u8",
+          "default": 0
+        },
+        "close_time": {
+          "type": "u8",
+          "default": 0
+        },
+        "speed": {
+          "type": "u8",
+          "default": 2,
+          "choices": [
+            {
+              "label": "Lenta",
+              "value": 1,
+              "wire": "0x01"
+            },
+            {
+              "label": "Media",
+              "value": 2,
+              "wire": "0x02"
+            },
+            {
+              "label": "Rápida",
+              "value": 3,
+              "wire": "0x03"
+            }
+          ]
+        },
+        "random_color": {
+          "type": "u8",
+          "default": 0
+        },
+        "color": {
+          "type": "rgb",
+          "rgb_order": "rgb",
+          "default": "#00aaff"
+        },
+        "color2": {
+          "type": "rgb",
+          "rgb_order": "rgb",
+          "default": "#ff3300"
+        },
+        "change_direct": {
+          "type": "u8",
+          "default": 0
+        }
+      }
+    },
+    "set_polling": {
+      "description": "Frecuencia de sondeo. CMD 0x11/0x41. body[1]=cable, body[2]=2.4G.",
+      "request": "41 {usb_rate} {free_rate}",
+      "params": {
+        "usb_rate": {
+          "type": "u8",
+          "default": 2,
+          "choices": [
+            {
+              "label": "125 Hz",
+              "value": 0,
+              "wire": "0x00"
+            },
+            {
+              "label": "500 Hz",
+              "value": 1,
+              "wire": "0x01"
+            },
+            {
+              "label": "1000 Hz",
+              "value": 2,
+              "wire": "0x02"
+            },
+            {
+              "label": "2000 Hz",
+              "value": 3,
+              "wire": "0x03"
+            },
+            {
+              "label": "4000 Hz",
+              "value": 4,
+              "wire": "0x04"
+            },
+            {
+              "label": "8000 Hz",
+              "value": 5,
+              "wire": "0x05"
+            }
+          ]
+        },
+        "free_rate": {
+          "type": "u8",
+          "default": 5,
+          "choices": [
+            {
+              "label": "125 Hz",
+              "value": 0,
+              "wire": "0x00"
+            },
+            {
+              "label": "500 Hz",
+              "value": 1,
+              "wire": "0x01"
+            },
+            {
+              "label": "1000 Hz",
+              "value": 2,
+              "wire": "0x02"
+            },
+            {
+              "label": "2000 Hz",
+              "value": 3,
+              "wire": "0x03"
+            },
+            {
+              "label": "4000 Hz",
+              "value": 4,
+              "wire": "0x04"
+            },
+            {
+              "label": "8000 Hz",
+              "value": 5,
+              "wire": "0x05"
+            }
+          ]
+        }
+      }
+    },
+    "set_sensor": {
+      "description": "LOD, ripple, angle-snap, motion-sync. CMD 0x11/0x42.",
+      "request": "42 {lod} {ripple} {angle_snap} {motion_sync} 00 00 00 00 00",
+      "params": {
+        "lod": {
+          "type": "u8",
+          "default": 0,
+          "choices": [
+            {
+              "label": "1 mm",
+              "value": 0,
+              "wire": "0x00"
+            },
+            {
+              "label": "2 mm",
+              "value": 1,
+              "wire": "0x01"
+            }
+          ]
+        },
+        "ripple": {
+          "type": "u8",
+          "default": 0
+        },
+        "angle_snap": {
+          "type": "u8",
+          "default": 0
+        },
+        "motion_sync": {
+          "type": "u8",
+          "default": 0
+        }
+      }
+    },
+    "get_config": {
+      "description": "Lee config. Requiere 0x58 previo para desbloquear. Respuesta por read() rid=0x12.",
+      "report_id": "0x12",
+      "report_length": 65,
+      "request": "67",
+      "response": {
+        "required": true,
+        "expect": {
+          "0": "0x12",
+          "1": "0x67"
+        },
+        "fields": {
+          "profile_index": {
+            "offset": 2,
+            "type": "u8"
+          },
+          "g_dpi_index": {
+            "offset": 3,
+            "type": "u8",
+            "mask": "0x0F"
+          },
+          "g_rate_index": {
+            "offset": 3,
+            "type": "u8",
+            "mask": "0xF0",
+            "shift": 4
+          },
+          "usb_dpi_index": {
+            "offset": 4,
+            "type": "u8",
+            "mask": "0x0F"
+          },
+          "usb_rate_index": {
+            "offset": 4,
+            "type": "u8",
+            "mask": "0xF0",
+            "shift": 4
+          },
+          "dpi0": {
+            "offset": 6,
+            "type": "u16le"
+          },
+          "dpi1": {
+            "offset": 8,
+            "type": "u16le"
+          },
+          "dpi2": {
+            "offset": 10,
+            "type": "u16le"
+          },
+          "dpi3": {
+            "offset": 12,
+            "type": "u16le"
+          },
+          "dpi4": {
+            "offset": 14,
+            "type": "u16le"
+          },
+          "dpi5": {
+            "offset": 16,
+            "type": "u16le"
+          },
+          "dpi_sum": {
+            "offset": 18,
+            "type": "u8"
+          },
+          "sensor": {
+            "offset": 19,
+            "type": "u8"
+          },
+          "debounce": {
+            "offset": 20,
+            "type": "u8"
+          },
+          "sleep": {
+            "offset": 21,
+            "type": "u8"
+          }
+        }
+      }
+    },
+    "set_active_profile": {
+      "description": "Activa perfil y desbloquea el canal largo. CMD 0x11/0x58.",
+      "request": "58 {profile}",
+      "params": {
+        "profile": {
+          "type": "u8",
+          "default": 0,
+          "choices": [
+            {
+              "label": "Perfil 1 (400 DPI)",
+              "value": 0,
+              "wire": "0x00"
+            },
+            {
+              "label": "Perfil 2 (800 DPI)",
+              "value": 1,
+              "wire": "0x01"
+            },
+            {
+              "label": "Perfil 3 (1600 DPI)",
+              "value": 2,
+              "wire": "0x02"
+            },
+            {
+              "label": "Perfil 4 (3200 DPI)",
+              "value": 3,
+              "wire": "0x03"
+            },
+            {
+              "label": "Perfil 5 (6400 DPI)",
+              "value": 4,
+              "wire": "0x04"
+            },
+            {
+              "label": "Perfil 6 (26000 DPI)",
+              "value": 5,
+              "wire": "0x05"
+            }
+          ]
+        }
+      }
+    },
+    "set_config": {
+      "description": "Escribe el bloque completo de configuración. CMD 0x12/0x57.",
+      "report_id": "0x12",
+      "report_length": 65,
+      "request": "57 {profile_index} {dpi_indices_1} {dpi_indices_2} 00 {dpi0} {dpi1} {dpi2} {dpi3} {dpi4} {dpi5} {dpi_sum} 00 {debounce} {sleep}",
+      "then": [],
+      "params": {
+        "profile_index": {
+          "type": "u8",
+          "min": 0,
+          "max": 7,
+          "default": 0
+        },
+        "dpi_indices_1": {
+          "type": "u8",
+          "default": 17
+        },
+        "dpi_indices_2": {
+          "type": "u8",
+          "default": 33
+        },
+        "dpi0": {
+          "type": "u16le",
+          "min": 100,
+          "max": 26000,
+          "step": 100,
+          "default": 400,
+          "unit": "DPI"
+        },
+        "dpi1": {
+          "type": "u16le",
+          "min": 100,
+          "max": 26000,
+          "step": 100,
+          "default": 800,
+          "unit": "DPI"
+        },
+        "dpi2": {
+          "type": "u16le",
+          "min": 100,
+          "max": 26000,
+          "step": 100,
+          "default": 1600,
+          "unit": "DPI"
+        },
+        "dpi3": {
+          "type": "u16le",
+          "min": 100,
+          "max": 26000,
+          "step": 100,
+          "default": 3200,
+          "unit": "DPI"
+        },
+        "dpi4": {
+          "type": "u16le",
+          "min": 100,
+          "max": 26000,
+          "step": 100,
+          "default": 6400,
+          "unit": "DPI"
+        },
+        "dpi5": {
+          "type": "u16le",
+          "min": 100,
+          "max": 26000,
+          "step": 100,
+          "default": 26000,
+          "unit": "DPI"
+        },
+        "dpi_sum": {
+          "type": "u8",
+          "min": 1,
+          "max": 6,
+          "step": 1,
+          "default": 6
+        },
+        "debounce": {
+          "type": "u8",
+          "min": 0,
+          "max": 20,
+          "step": 1,
+          "default": 3,
+          "unit": "ms"
+        },
+        "sleep": {
+          "type": "u8",
+          "min": 1,
+          "max": 30,
+          "step": 1,
+          "default": 5,
+          "unit": "min"
+        }
+      }
+    },
+    "set_dpi": {
+      "description": "Escribe los 6 perfiles de DPI. CMD 0x11/0x40.",
+      "request": "40 {usb_dpi_index} {g_dpi_index} 00 {dpi0} {dpi1} {dpi2} {dpi3} {dpi4} {dpi5} {sum}",
+      "params": {
+        "usb_dpi_index": {
+          "type": "u8",
+          "min": 0,
+          "max": 5,
+          "step": 1,
+          "default": 0
+        },
+        "g_dpi_index": {
+          "type": "u8",
+          "min": 0,
+          "max": 5,
+          "step": 1,
+          "default": 0
+        },
+        "dpi0": {
+          "type": "u16le",
+          "min": 100,
+          "max": 26000,
+          "step": 100,
+          "default": 400,
+          "unit": "DPI"
+        },
+        "dpi1": {
+          "type": "u16le",
+          "min": 100,
+          "max": 26000,
+          "step": 100,
+          "default": 800,
+          "unit": "DPI"
+        },
+        "dpi2": {
+          "type": "u16le",
+          "min": 100,
+          "max": 26000,
+          "step": 100,
+          "default": 1600,
+          "unit": "DPI"
+        },
+        "dpi3": {
+          "type": "u16le",
+          "min": 100,
+          "max": 26000,
+          "step": 100,
+          "default": 3200,
+          "unit": "DPI"
+        },
+        "dpi4": {
+          "type": "u16le",
+          "min": 100,
+          "max": 26000,
+          "step": 100,
+          "default": 6400,
+          "unit": "DPI"
+        },
+        "dpi5": {
+          "type": "u16le",
+          "min": 100,
+          "max": 26000,
+          "step": 100,
+          "default": 26000,
+          "unit": "DPI"
+        },
+        "sum": {
+          "type": "u8",
+          "min": 1,
+          "max": 6,
+          "step": 1,
+          "default": 6
+        }
+      }
+    },
+    "set_debounce": {
+      "description": "Tiempo de rebote. CMD 0x11/0x43.",
+      "request": "43 {time}",
+      "params": {
+        "time": {
+          "type": "u8",
+          "min": 0,
+          "max": 20,
+          "step": 1,
+          "default": 3,
+          "unit": "ms"
+        }
+      }
+    },
+    "set_sleep": {
+      "description": "Reposo automático. CMD 0x11/0x0A.",
+      "request": "0A {status} {minutes}",
+      "params": {
+        "status": {
+          "type": "u8",
+          "default": 1,
+          "choices": [
+            {
+              "label": "Desactivado",
+              "value": 0,
+              "wire": "0x00"
+            },
+            {
+              "label": "Activado",
+              "value": 1,
+              "wire": "0x01"
+            }
+          ]
+        },
+        "minutes": {
+          "type": "u8",
+          "min": 1,
+          "max": 30,
+          "step": 1,
+          "default": 5,
+          "unit": "min"
+        }
+      }
+    }
+  },
+  "features": [
+    {
+      "id": "battery",
+      "widget": "battery",
+      "label": "Batería",
+      "command": "get_battery",
+      "percent": "battery_percent",
+      "charging": "charging",
+      "poll_seconds": 60
+    },
+    {
+      "id": "active_profile",
+      "group": "DPI",
+      "label": "Perfil activo",
+      "command": "set_active_profile",
+      "param": "profile",
+      "widget": "choice"
+    },
+    {
+      "id": "dpi0",
+      "group": "DPI",
+      "label": "Perfil 1 — DPI",
+      "command": "set_dpi",
+      "param": "dpi0",
+      "fixed": {
+        "usb_dpi_index": 0,
+        "g_dpi_index": 0,
+        "dpi1": 800,
+        "dpi2": 1600,
+        "dpi3": 3200,
+        "dpi4": 6400,
+        "dpi5": 26000,
+        "sum": 6
+      }
+    },
+    {
+      "id": "dpi1",
+      "group": "DPI",
+      "label": "Perfil 2 — DPI",
+      "command": "set_dpi",
+      "param": "dpi1",
+      "fixed": {
+        "usb_dpi_index": 0,
+        "g_dpi_index": 0,
+        "dpi0": 400,
+        "dpi2": 1600,
+        "dpi3": 3200,
+        "dpi4": 6400,
+        "dpi5": 26000,
+        "sum": 6
+      }
+    },
+    {
+      "id": "dpi2",
+      "group": "DPI",
+      "label": "Perfil 3 — DPI",
+      "command": "set_dpi",
+      "param": "dpi2",
+      "fixed": {
+        "usb_dpi_index": 0,
+        "g_dpi_index": 0,
+        "dpi0": 400,
+        "dpi1": 800,
+        "dpi3": 3200,
+        "dpi4": 6400,
+        "dpi5": 26000,
+        "sum": 6
+      }
+    },
+    {
+      "id": "dpi3",
+      "group": "DPI",
+      "label": "Perfil 4 — DPI",
+      "command": "set_dpi",
+      "param": "dpi3",
+      "fixed": {
+        "usb_dpi_index": 0,
+        "g_dpi_index": 0,
+        "dpi0": 400,
+        "dpi1": 800,
+        "dpi2": 1600,
+        "dpi4": 6400,
+        "dpi5": 26000,
+        "sum": 6
+      }
+    },
+    {
+      "id": "dpi4",
+      "group": "DPI",
+      "label": "Perfil 5 — DPI",
+      "command": "set_dpi",
+      "param": "dpi4",
+      "fixed": {
+        "usb_dpi_index": 0,
+        "g_dpi_index": 0,
+        "dpi0": 400,
+        "dpi1": 800,
+        "dpi2": 1600,
+        "dpi3": 3200,
+        "dpi5": 26000,
+        "sum": 6
+      }
+    },
+    {
+      "id": "dpi5",
+      "group": "DPI",
+      "label": "Perfil 6 — DPI",
+      "command": "set_dpi",
+      "param": "dpi5",
+      "fixed": {
+        "usb_dpi_index": 0,
+        "g_dpi_index": 0,
+        "dpi0": 400,
+        "dpi1": 800,
+        "dpi2": 1600,
+        "dpi3": 3200,
+        "dpi4": 6400,
+        "sum": 6
+      }
+    },
+    {
+      "id": "polling_usb",
+      "group": "Sensor",
+      "label": "Frecuencia de sondeo (cable)",
+      "command": "set_polling",
+      "param": "usb_rate",
+      "fixed": {
+        "free_rate": 5
+      }
+    },
+    {
+      "id": "polling_wireless",
+      "group": "Sensor",
+      "label": "Frecuencia de sondeo (2.4 GHz)",
+      "command": "set_polling",
+      "param": "free_rate",
+      "fixed": {
+        "usb_rate": 2
+      }
+    },
+    {
+      "id": "lod",
+      "group": "Sensor",
+      "label": "Distancia de despegue (LOD)",
+      "command": "set_sensor",
+      "param": "lod",
+      "fixed": {
+        "ripple": 0,
+        "angle_snap": 0,
+        "motion_sync": 0
+      }
+    },
+    {
+      "id": "ripple",
+      "group": "Sensor",
+      "label": "Ripple control",
+      "widget": "switch",
+      "command": "set_sensor",
+      "param": "ripple",
+      "fixed": {
+        "lod": 0,
+        "angle_snap": 0,
+        "motion_sync": 0
+      }
+    },
+    {
+      "id": "angle_snap",
+      "group": "Sensor",
+      "label": "Corrección de ángulo",
+      "widget": "switch",
+      "command": "set_sensor",
+      "param": "angle_snap",
+      "fixed": {
+        "lod": 0,
+        "ripple": 0,
+        "motion_sync": 0
+      }
+    },
+    {
+      "id": "motion_sync",
+      "group": "Sensor",
+      "label": "Motion sync",
+      "widget": "switch",
+      "command": "set_sensor",
+      "param": "motion_sync",
+      "fixed": {
+        "lod": 0,
+        "ripple": 0,
+        "angle_snap": 0
+      }
+    },
+    {
+      "id": "debounce",
+      "group": "Sensor",
+      "label": "Tiempo de rebote",
+      "command": "set_debounce",
+      "param": "time"
+    },
+    {
+      "id": "sleep_status",
+      "group": "Reposo",
+      "label": "Reposo automático",
+      "widget": "switch",
+      "command": "set_sleep",
+      "param": "status",
+      "fixed": {
+        "minutes": 5
+      }
+    },
+    {
+      "id": "sleep_minutes",
+      "group": "Reposo",
+      "label": "Minutos hasta el reposo",
+      "command": "set_sleep",
+      "param": "minutes",
+      "fixed": {
+        "status": 1
+      }
+    },
+    {
+      "id": "rgb_effect",
+      "group": "Iluminación RGB",
+      "label": "Efecto",
+      "command": "set_rgb",
+      "param": "effect",
+      "fixed": {
+        "enable": 1,
+        "use_independent": 0,
+        "brightness": 100,
+        "light_setting": 0,
+        "close_time": 0,
+        "speed": 2,
+        "random_color": 0,
+        "color": "#00aaff",
+        "color2": "#ff3300",
+        "change_direct": 0
+      }
+    },
+    {
+      "id": "rgb_color",
+      "group": "Iluminación RGB",
+      "label": "Color",
+      "command": "set_rgb",
+      "param": "color",
+      "fixed": {
+        "enable": 1,
+        "effect": 1,
+        "use_independent": 0,
+        "brightness": 100,
+        "light_setting": 0,
+        "close_time": 0,
+        "speed": 2,
+        "random_color": 0,
+        "color2": "#ff3300",
+        "change_direct": 0
+      }
+    },
+    {
+      "id": "rgb_brightness",
+      "group": "Iluminación RGB",
+      "label": "Brillo",
+      "command": "set_rgb",
+      "param": "brightness",
+      "fixed": {
+        "enable": 1,
+        "effect": 1,
+        "use_independent": 0,
+        "light_setting": 0,
+        "close_time": 0,
+        "speed": 2,
+        "random_color": 0,
+        "color": "#00aaff",
+        "color2": "#ff3300",
+        "change_direct": 0
+      }
+    },
+    {
+      "id": "rgb_speed",
+      "group": "Iluminación RGB",
+      "label": "Velocidad",
+      "command": "set_rgb",
+      "param": "speed",
+      "fixed": {
+        "enable": 1,
+        "effect": 2,
+        "use_independent": 0,
+        "brightness": 100,
+        "light_setting": 0,
+        "close_time": 0,
+        "random_color": 0,
+        "color": "#00aaff",
+        "color2": "#ff3300",
+        "change_direct": 0
+      }
+    }
+  ]
+}

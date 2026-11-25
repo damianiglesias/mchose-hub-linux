@@ -1,0 +1,14 @@
+# /etc/udev/rules.d/70-mchose-hub.rules
+# Generado por «mchose-hub udev». NO lo edites a mano: se regenera al instalar o al añadir perfiles.
+# Da acceso a /dev/hidrawN (y al nodo USB, por si se usa libusb) al usuario con sesión local activa.
+# Debe ordenarse antes de 73-seat-late.rules (por eso el prefijo 70-).
+
+# VID 0x1915 — candidato (sin verificar; es el VID de Nordic Semiconductor, común en dongles 2.4 GHz)
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1915", TAG+="uaccess"
+SUBSYSTEM=="hidraw", KERNELS=="0005:1915:*", TAG+="uaccess"
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="1915", TAG+="uaccess"
+
+# VID 0x320F — candidato (sin verificar)
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="320f", TAG+="uaccess"
+SUBSYSTEM=="hidraw", KERNELS=="0005:320F:*", TAG+="uaccess"
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="320f", TAG+="uaccess"
