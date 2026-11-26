@@ -135,6 +135,14 @@ def _parse_rate_wired(text: str) -> int:
     return int(m.group(1)) if m else 1000
 
 
+def _parse_on_off(text: str) -> bool:
+    """Parsea on/off sin confundir la palabra ``off`` con ``on``."""
+    value = text.lower().replace("_", " ")
+    if re.search(r"\b(?:off|disabled|false)\b", value):
+        return False
+    return bool(re.search(r"\b(?:on|enabled|true)\b", value))
+
+
 def parse_show(output: str) -> MouseState:
     """Parsea la salida de 'mchose show' en un MouseState."""
     s = MouseState()
@@ -146,11 +154,11 @@ def parse_show(output: str) -> MouseState:
             continue
 
         # Línea de perfil DPI:  "* 2  1600 dpi"  o  "  1   400 dpi"
-        m = re.match(r'(\*?)\s*(\d+)\s+(\d+)\s+dpi', line)
+        m = re.search(r'(?P<active>\*)?\s*(?P<idx>\d+)\s+(?P<dpi>\d+)\s*dpi\b', line, re.I)
         if m:
-            active = bool(m.group(1))
-            idx = int(m.group(2))
-            dpi = int(m.group(3))
+            active = bool(m.group("active"))
+            idx = int(m.group("idx"))
+            dpi = int(m.group("dpi"))
             stages[idx] = dpi
             if active:
                 s.active_stage = idx
@@ -168,11 +176,11 @@ def parse_show(output: str) -> MouseState:
             m2 = re.search(r'(\d+)', line)
             s.sleep = int(m2.group(1)) if m2 else 0
         elif line.startswith("ripple"):
-            s.ripple = "on" in line.lower()
+            s.ripple = _parse_on_off(line)
         elif line.startswith("angle snap"):
-            s.angle_snap = "on" in line.lower()
+            s.angle_snap = _parse_on_off(line)
         elif line.startswith("motion sync"):
-            s.motion_sync = "on" in line.lower()
+            s.motion_sync = _parse_on_off(line)
         elif line.startswith("lod"):
             m2 = re.search(r'(\d+)', line)
             if m2:

@@ -13,6 +13,8 @@ Flujo:
 from __future__ import annotations
 
 import logging
+import json
+from pathlib import Path
 import threading
 from typing import Any, Callable, Dict, List, Optional
 
@@ -71,6 +73,7 @@ class CliDeviceView(Adw.PreferencesPage):
         self._state: Optional[MouseState] = None
         self._pending: Dict[str, int] = {}   # temporizadores de antirrebote
         self._battery_timer: int = 0
+        self._refresh_timer: int = 0
         # Flag para suprimir callbacks de escritura mientras se actualiza la UI
         self._building = True
 
@@ -130,7 +133,7 @@ class CliDeviceView(Adw.PreferencesPage):
         # ----------------------------------------------------------------
         g_sensor = Adw.PreferencesGroup(title="Sensor")
 
-        self._rate_row = Adw.ComboRow(title="Frecuencia de sondeo (inalámbrico)")
+        self._rate_row = Adw.ComboRow(title="Polling inalámbrico")
         self._rate_row.set_model(
             Gtk.StringList.new([f"{r} Hz" for r in RATE_OPTIONS])
         )
@@ -163,6 +166,23 @@ class CliDeviceView(Adw.PreferencesPage):
         )
         self.add(g_sleep)
 
+        g_presets = Adw.PreferencesGroup(title="Presets")
+        self._preset_name = Adw.ComboRow(title="Preset")
+        self._preset_name.set_model(Gtk.StringList.new(["Gaming", "Trabajo", "FPS"]))
+        g_presets.add(self._preset_name)
+        save = Gtk.Button(label="Guardar", valign=Gtk.Align.CENTER)
+        load = Gtk.Button(label="Cargar", valign=Gtk.Align.CENTER)
+        save.connect("clicked", self._save_preset)
+        load.connect("clicked", self._load_preset)
+        preset_row = _row("Configuración completa", "~/.config/mchose-hub/presets.json")
+        preset_row.add_suffix(save)
+        preset_row.add_suffix(load)
+        g_presets.add(preset_row)
+        reset = Gtk.Button(label="Restaurar valores predeterminados", valign=Gtk.Align.CENTER)
+        reset.connect("clicked", self._reset_defaults)
+        g_presets.add(reset)
+        self.add(g_presets)
+
         # ----------------------------------------------------------------
         # Conectar señales DESPUÉS de construir todos los widgets
         # ----------------------------------------------------------------
@@ -180,6 +200,9 @@ class CliDeviceView(Adw.PreferencesPage):
         # ----------------------------------------------------------------
         _worker(self._backend.get_state, self._apply_state, self._on_error)
         self._battery_timer = GLib.timeout_add_seconds(60, self._poll_battery)
+        # El enlace USB puede cambiar sin que cambie la ventana: refrescar el
+        # estado también cubre el cambio cable ↔ dongle de forma inmediata.
+        self._refresh_timer = GLib.timeout_add_seconds(3, self._poll_state)
 
     # ----------------------------------------------------------------
     # Helpers de construcción
@@ -222,9 +245,14 @@ class CliDeviceView(Adw.PreferencesPage):
         )
         return GLib.SOURCE_CONTINUE
 
+    def _poll_state(self) -> bool:
+        _worker(self._backend.get_state, self._apply_state,
+                lambda _exc: None)
+        return GLib.SOURCE_CONTINUE
+
     def _apply_battery_only(self, state: MouseState) -> None:
         if state.battery is not None:
-            suffix = "  · cargando" if state.charging else ""
+            suffix = "  · cargando" if state.charging else ("  · batería baja" if state.battery <= 20 else "")
             self._battery_row.set_subtitle(f"{state.battery} %{suffix}")
             self._bar.set_value(float(state.battery))
 
@@ -237,14 +265,25 @@ class CliDeviceView(Adw.PreferencesPage):
         parts: List[str] = []
         if state.firmware:
             parts.append(f"firmware {state.firmware}")
-        if state.link:
+        link = state.link.lower()
+        if "cable" in link or "wired" in link or "usb" in link:
+            parts.append("Cable USB (conectado)")
+        elif "wireless" in link or "2.4" in link or "dongle" in link:
+            parts.append("2.4 GHz (conectado)")
+        elif state.link:
             parts.append(state.link)
         self._head.set_description("  ·  ".join(parts) if parts else "")
         self._status_row.set_subtitle("Conectado")
+        is_wired = any(token in link for token in ("cable", "wired", "usb"))
+        active_rate = state.rate_wired if is_wired else state.rate_wireless
+        self._rate_row.set_title("Polling por cable" if is_wired else "Polling inalámbrico")
+        active_idx = next((i for i, r in enumerate(RATE_OPTIONS) if r == active_rate),
+                          RATE_OPTIONS.index(1000))
+        self._rate_row.set_selected(active_idx)
 
         # --- Batería ---
         if state.battery is not None:
-            suffix = "  · cargando" if state.charging else ""
+            suffix = "  · cargando" if state.charging else ("  · batería baja" if state.battery <= 20 else "")
             self._battery_row.set_subtitle(f"{state.battery} %{suffix}")
             self._bar.set_value(float(state.battery))
 
@@ -261,12 +300,6 @@ class CliDeviceView(Adw.PreferencesPage):
             )
 
         # --- Polling inalámbrico ---
-        idx = next(
-            (i for i, r in enumerate(RATE_OPTIONS) if r == state.rate_wireless),
-            RATE_OPTIONS.index(1000)   # 1000 Hz por defecto
-        )
-        self._rate_row.set_selected(idx)
-
         # --- LOD (1mm → índice 0, 2mm → índice 1) ---
         self._lod_row.set_selected(0 if state.lod <= 1 else 1)
 
@@ -296,9 +329,10 @@ class CliDeviceView(Adw.PreferencesPage):
 
         def fire() -> bool:
             self._pending.pop(key, None)
+            self._status_row.set_subtitle("Aplicando…")
             _worker(
                 lambda: self._backend.set_dpi_stage(stage, dpi),
-                lambda _: None,
+                lambda _: self._success("DPI aplicado"),
                 self._on_error
             )
             return GLib.SOURCE_REMOVE
@@ -309,12 +343,13 @@ class CliDeviceView(Adw.PreferencesPage):
         if self._building:
             return
         stage = row.get_selected()
+        self._status_row.set_subtitle("Aplicando…")
         # Marcar visualmente el perfil activo inmediatamente
         for i, drow in enumerate(self._dpi_rows):
             drow.set_title(f"{'▶ ' if i == stage else ''}Perfil {i + 1} — DPI")
         _worker(
             lambda: self._backend.set_active_stage(stage),
-            lambda _: None,
+            lambda _: self._success("Perfil aplicado"),
             self._on_error
         )
 
@@ -322,13 +357,15 @@ class CliDeviceView(Adw.PreferencesPage):
         if self._building:
             return
         hz = RATE_OPTIONS[row.get_selected()]
-        _worker(lambda: self._backend.set_rate(hz), lambda _: None, self._on_error)
+        self._status_row.set_subtitle("Aplicando…")
+        _worker(lambda: self._backend.set_rate(hz), lambda _: self._success("Polling aplicado"), self._on_error)
 
     def _on_lod_changed(self, row: Adw.ComboRow, _ps: Any) -> None:
         if self._building:
             return
         mm = row.get_selected() + 1   # 0 → 1 mm, 1 → 2 mm
-        _worker(lambda: self._backend.set_lod(mm), lambda _: None, self._on_error)
+        self._status_row.set_subtitle("Aplicando…")
+        _worker(lambda: self._backend.set_lod(mm), lambda _: self._success("LOD aplicado"), self._on_error)
 
     def _on_debounce_changed(self, scale: Gtk.Scale) -> None:
         if self._building:
@@ -340,9 +377,10 @@ class CliDeviceView(Adw.PreferencesPage):
 
         def fire() -> bool:
             self._pending.pop("debounce", None)
+            self._status_row.set_subtitle("Aplicando…")
             _worker(
                 lambda: self._backend.set_debounce(ms),
-                lambda _: None,
+                lambda _: self._success("Debounce aplicado"),
                 self._on_error
             )
             return GLib.SOURCE_REMOVE
@@ -359,9 +397,10 @@ class CliDeviceView(Adw.PreferencesPage):
 
         def fire() -> bool:
             self._pending.pop("sleep", None)
+            self._status_row.set_subtitle("Aplicando…")
             _worker(
                 lambda: self._backend.set_sleep(mins),
-                lambda _: None,
+                lambda _: self._success("Reposo aplicado"),
                 self._on_error
             )
             return GLib.SOURCE_REMOVE
@@ -372,13 +411,73 @@ class CliDeviceView(Adw.PreferencesPage):
         if self._building:
             return
         val = sw.get_active()
+        self._status_row.set_subtitle("Aplicando…")
         tl = title.lower()
         if "ripple" in tl:
-            _worker(lambda: self._backend.set_ripple(val), lambda _: None, self._on_error)
+            _worker(lambda: self._backend.set_ripple(val), lambda _: self._success("Ripple aplicado"), self._on_error)
         elif "angle" in tl:
-            _worker(lambda: self._backend.set_angle_snap(val), lambda _: None, self._on_error)
+            _worker(lambda: self._backend.set_angle_snap(val), lambda _: self._success("Angle snap aplicado"), self._on_error)
         elif "motion" in tl:
-            _worker(lambda: self._backend.set_motion_sync(val), lambda _: None, self._on_error)
+            _worker(lambda: self._backend.set_motion_sync(val), lambda _: self._success("Motion sync aplicado"), self._on_error)
+
+    def _success(self, message: str) -> None:
+        self._status_row.set_subtitle("Conectado")
+        self._toast(message)
+
+    @staticmethod
+    def _preset_path() -> Path:
+        return Path.home() / ".config" / "mchose-hub" / "presets.json"
+
+    def _save_preset(self, _button: Gtk.Button) -> None:
+        if not self._state:
+            self._toast("Todavía no hay estado leído")
+            return
+        path = self._preset_path()
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            data = {}
+            if path.exists():
+                data = json.loads(path.read_text(encoding="utf-8"))
+            names = ["Gaming", "Trabajo", "FPS"]
+            data[names[self._preset_name.get_selected()]] = {"stages": self._state.stages,
+                                "active_stage": self._state.active_stage,
+                                "rate_wireless": self._state.rate_wireless,
+                                "lod": self._state.lod, "debounce": self._state.debounce,
+                                "sleep": self._state.sleep, "ripple": self._state.ripple,
+                                "angle_snap": self._state.angle_snap,
+                                "motion_sync": self._state.motion_sync}
+            path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            self._toast(f"Preset guardado: {names[self._preset_name.get_selected()]}")
+        except (OSError, ValueError) as exc:
+            self._toast(f"No se pudo guardar el preset: {exc}")
+
+    def _load_preset(self, _button: Gtk.Button) -> None:
+        try:
+            names = ["Gaming", "Trabajo", "FPS"]
+            data = json.loads(self._preset_path().read_text(encoding="utf-8"))[names[self._preset_name.get_selected()]]
+            jobs = []
+            for i, dpi in enumerate(data.get("stages", [])):
+                jobs.append(lambda i=i, dpi=dpi: self._backend.set_dpi_stage(i, int(dpi)))
+            if "active_stage" in data:
+                jobs.append(lambda: self._backend.set_active_stage(int(data["active_stage"])))
+            if "rate_wireless" in data:
+                jobs.append(lambda: self._backend.set_rate(int(data["rate_wireless"])))
+            jobs.extend([lambda: self._backend.set_lod(int(data.get("lod", 1))),
+                         lambda: self._backend.set_debounce(int(data.get("debounce", 0))),
+                         lambda: self._backend.set_sleep(int(data.get("sleep", 0))),
+                         lambda: self._backend.set_motion_sync(bool(data.get("motion_sync", False)))])
+            def apply_all() -> None:
+                for job in jobs:
+                    job()
+            _worker(apply_all, lambda _: (self._toast("Preset cargado"), self._refresh())[1], self._on_error)
+        except (OSError, ValueError, KeyError) as exc:
+            self._toast(f"No se pudo cargar el preset: {exc}")
+
+    def _reset_defaults(self, _button: Gtk.Button) -> None:
+        defaults = MouseState()
+        self._apply_state(defaults)
+        _worker(lambda: [self._backend.set_dpi_stage(i, dpi) for i, dpi in enumerate(defaults.stages)],
+                lambda _: self._success("Valores predeterminados restaurados"), self._on_error)
 
     # ----------------------------------------------------------------
     # Manejo de errores
@@ -405,3 +504,6 @@ class CliDeviceView(Adw.PreferencesPage):
         if self._battery_timer:
             GLib.source_remove(self._battery_timer)
             self._battery_timer = 0
+        if self._refresh_timer:
+            GLib.source_remove(self._refresh_timer)
+            self._refresh_timer = 0
