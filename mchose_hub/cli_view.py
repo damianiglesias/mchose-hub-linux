@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import json
 from pathlib import Path
+from functools import partial
 import threading
 from typing import Any, Callable, Dict, List, Optional
 
@@ -110,6 +111,7 @@ class CliDeviceView(Adw.PreferencesPage):
         # ----------------------------------------------------------------
         self._g_dpi = Adw.PreferencesGroup(title="DPI por perfil")
         self._dpi_scales: List[Gtk.Scale] = []
+        self._dpi_inputs: List[Gtk.Entry] = []
         self._dpi_rows: List[Adw.ActionRow] = []
         for i in range(NUM_STAGES):
             row = _row(f"Perfil {i + 1} — DPI", "DPI")
@@ -122,9 +124,21 @@ class CliDeviceView(Adw.PreferencesPage):
             scale.set_size_request(260, -1)
             scale.set_value(800.0)
             scale._stage_index = i  # type: ignore[attr-defined]
+            dpi_input = Gtk.Entry()
+            dpi_input.set_text("800")
+            dpi_input.set_input_purpose(Gtk.InputPurpose.DIGITS)
+            dpi_input.set_width_chars(6)
+            dpi_input.set_max_length(5)
+            dpi_input.set_alignment(1.0)
+            dpi_input._stage_index = i  # type: ignore[attr-defined]
             self._dpi_scales.append(scale)
+            self._dpi_inputs.append(dpi_input)
             self._dpi_rows.append(row)
             row.add_suffix(scale)
+            row.add_suffix(dpi_input)
+            apply_button = Gtk.Button(label="Aplicar", valign=Gtk.Align.CENTER)
+            apply_button.connect("clicked", partial(self._apply_profile, stage=i))
+            row.add_suffix(apply_button)
             self._g_dpi.add(row)
         self.add(self._g_dpi)
 
@@ -178,10 +192,17 @@ class CliDeviceView(Adw.PreferencesPage):
         preset_row.add_suffix(save)
         preset_row.add_suffix(load)
         g_presets.add(preset_row)
-        reset = Gtk.Button(label="Restaurar valores predeterminados", valign=Gtk.Align.CENTER)
+        reset = Gtk.Button(label="Restaurar", valign=Gtk.Align.CENTER)
         reset.connect("clicked", self._reset_defaults)
-        g_presets.add(reset)
+        reset_row = _row("Valores predeterminados", "Restablece los seis perfiles DPI")
+        reset_row.add_suffix(reset)
+        g_presets.add(reset_row)
         self.add(g_presets)
+
+        g_diag = Adw.PreferencesGroup(title="Diagnóstico")
+        self._diag_row = _row("Información del dispositivo", "Esperando datos…")
+        g_diag.add(self._diag_row)
+        self.add(g_diag)
 
         # ----------------------------------------------------------------
         # Conectar señales DESPUÉS de construir todos los widgets
@@ -192,6 +213,8 @@ class CliDeviceView(Adw.PreferencesPage):
         self._lod_row.connect("notify::selected", self._on_lod_changed)
         for scale in self._dpi_scales:
             scale.connect("value-changed", self._on_dpi_changed)
+        for dpi_input in self._dpi_inputs:
+            dpi_input.connect("changed", self._on_dpi_input_changed)
         self._debounce_scale.connect("value-changed", self._on_debounce_changed)
         self._sleep_scale.connect("value-changed", self._on_sleep_changed)
 
@@ -274,6 +297,11 @@ class CliDeviceView(Adw.PreferencesPage):
             parts.append(state.link)
         self._head.set_description("  ·  ".join(parts) if parts else "")
         self._status_row.set_subtitle("Conectado")
+        self._diag_row.set_subtitle(
+            f"firmware {state.firmware or 'desconocido'} · enlace "
+            f"{state.link or 'desconocido'} · batería "
+            f"{state.battery if state.battery is not None else '—'}%"
+        )
         is_wired = any(token in link for token in ("cable", "wired", "usb"))
         active_rate = state.rate_wired if is_wired else state.rate_wireless
         self._rate_row.set_title("Polling por cable" if is_wired else "Polling inalámbrico")
@@ -294,6 +322,7 @@ class CliDeviceView(Adw.PreferencesPage):
         for i, scale in enumerate(self._dpi_scales):
             dpi = state.stages[i] if i < len(state.stages) else 400
             scale.set_value(float(dpi))
+            self._dpi_inputs[i].set_text(str(dpi))
             active = (i == state.active_stage)
             self._dpi_rows[i].set_title(
                 f"{'▶ ' if active else ''}Perfil {i + 1} — DPI"
@@ -322,6 +351,9 @@ class CliDeviceView(Adw.PreferencesPage):
             return
         stage = scale._stage_index  # type: ignore[attr-defined]
         dpi = int(round(scale.get_value() / 100)) * 100
+        self._building = True
+        self._dpi_inputs[stage].set_value(dpi)
+        self._building = False
         key = f"dpi{stage}"
         old = self._pending.pop(key, None)
         if old:
@@ -338,6 +370,36 @@ class CliDeviceView(Adw.PreferencesPage):
             return GLib.SOURCE_REMOVE
 
         self._pending[key] = GLib.timeout_add(400, fire)
+
+    def _on_dpi_input_changed(self, input_widget: Gtk.Entry) -> None:
+        if self._building:
+            return
+        stage = input_widget._stage_index  # type: ignore[attr-defined]
+        try:
+            dpi = int(input_widget.get_text())
+        except ValueError:
+            return
+        dpi = max(100, min(26000, dpi))
+        self._building = True
+        self._dpi_scales[stage].set_value(dpi)
+        self._building = False
+
+    def _apply_profile(self, _button: Gtk.Button, stage: int) -> None:
+        if self._building or not self._state:
+            return
+        try:
+            dpi = int(self._dpi_inputs[stage].get_text())
+        except ValueError:
+            self._toast("Introduce un DPI válido, por ejemplo 800 o 1600")
+            return
+        if dpi < 100 or dpi > 26000 or dpi % 100:
+            self._toast("El DPI debe estar entre 100 y 26000, en pasos de 100")
+            return
+        self._status_row.set_subtitle("Aplicando…")
+        _worker(lambda: self._backend.set_dpi_stage(stage, dpi),
+                lambda _: (self._success(f"Perfil {stage + 1} aplicado: {dpi} DPI"),
+                            self._refresh()),
+                self._on_error)
 
     def _on_stage_changed(self, row: Adw.ComboRow, _ps: Any) -> None:
         if self._building:

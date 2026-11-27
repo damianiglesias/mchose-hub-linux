@@ -248,16 +248,11 @@ class MchoseCliBackend:
     # -- escritura -----------------------------------------------------------
     def set_dpi_stage(self, stage_index: int, dpi: int) -> None:
         """Cambia el DPI de un perfil específico (0-5) sin tocar los demás."""
-        # Leer el estado actual para no borrar los otros perfiles
-        try:
-            state = parse_show(_run("show", timeout=15))
-        except MchoseCliError:
-            state = MouseState()
-        stages = list(state.stages)
-        while len(stages) < 6:
-            stages.append(stages[-1] if stages else 800)
-        stages[stage_index] = dpi
-        _run("dpi", "--list", ",".join(str(d) for d in stages), timeout=15)
+        # Las versiones actuales del CLI usan --stage; --list pertenece a
+        # versiones antiguas y devuelve "usage" en mchose-linux reciente.
+        if not 0 <= stage_index < 6:
+            raise ValueError(f"perfil DPI fuera de rango: {stage_index}")
+        _run("dpi", str(dpi), "--stage", str(stage_index), timeout=15)
 
     def set_active_stage(self, stage_index: int) -> None:
         _run("stage", str(stage_index), timeout=15)

@@ -646,6 +646,9 @@ class MainWindow(Adw.ApplicationWindow):
         )
         refresh.connect("clicked", lambda _b: self.refresh_devices())
         header.pack_start(refresh)
+        theme = Gtk.Button(label="Tema", tooltip_text="Cambiar entre tema claro y oscuro")
+        theme.connect("clicked", self._toggle_theme)
+        header.pack_start(theme)
         show_all = Gtk.ToggleButton(
             label="Todos los HID",
             tooltip_text="Mostrar también los dispositivos que no son MCHOSE"
@@ -706,6 +709,16 @@ class MainWindow(Adw.ApplicationWindow):
     def toast(self, message: str) -> None:
         self._toasts.add_toast(Adw.Toast.new(message))
 
+    def _toggle_theme(self, _button: Gtk.Button) -> None:
+        manager = Adw.StyleManager.get_default()
+        current = manager.get_color_scheme()
+        manager.set_color_scheme(
+            Adw.ColorScheme.FORCE_LIGHT
+            if current == Adw.ColorScheme.FORCE_DARK
+            else Adw.ColorScheme.FORCE_DARK
+        )
+        self.toast("Tema actualizado")
+
     def _on_show_all(self, button: Gtk.ToggleButton) -> None:
         self._show_all = button.get_active()
         self.refresh_devices()
@@ -717,6 +730,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.refresh_devices()
 
     def refresh_devices(self) -> None:
+        self.toast("Buscando dispositivos…")
         profiles, show_all = self._profiles, self._show_all
 
         def scan() -> Tuple[List[DeviceInfo], List[UnknownDevice]]:
