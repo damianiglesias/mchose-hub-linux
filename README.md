@@ -1,48 +1,49 @@
 # MCHOSE Linux Hub
 
-Gestor de periféricos MCHOSE para Linux en **espacio de usuario** (sin módulos de kernel): interfaz GTK4/libadwaita,
-motor HID dirigido por **perfiles JSON** y un instalador que configura permisos udev para no usar `root`.
+MCHOSE peripheral manager for Linux in **user space** (no kernel modules): a GTK4/libadwaita interface,
+an HID engine driven by **JSON profiles**, and an installer that configures udev permissions without requiring `root`.
 
-> **Estado, con honestidad.** Esto es el *framework* completo más dos **plantillas**. Los bytes de
-> `profiles/*_template.json` están inventados para ilustrar el formato: **no hay protocolos reales de MCHOSE
-> verificados** (no tengo acceso a hardware ni encontré documentación pública). Para que un modelo funcione hay
-> que capturar sus payloads (§5) y escribir su perfil. Los VID `0x320F` y `0x1915` de las reglas udev son
-> candidatos sin verificar; comprueba el tuyo con `mchose-hub list --all` o `lsusb`.
+> **Honest status.** This is the complete *framework* plus two **templates**. The bytes in
+> `profiles/*_template.json` are illustrative: there are **no verified real MCHOSE protocols** here
+> (I do not have access to the hardware and found no public documentation). To support a model, capture
+> its payloads (§5) and write its profile. The `0x320F` and `0x1915` VIDs in the udev rules are unverified
+> candidates; check yours with `mchose-hub list --all` or `lsusb`.
 >
-> Probado: 31 tests automáticos (sin hardware), instalador completo en Ubuntu 24.04, GUI en modo demo sobre Xvfb
-> (controles, reposo, desconexión, reconexión). **No probado:** hardware real, otras distribuciones, Wayland nativo.
+> Tested: 31 automated tests (without hardware), complete installer on Ubuntu 24.04, demo GUI on Xvfb
+> (controls, sleep, disconnection, reconnection). **Not tested:** real hardware, other distributions, native Wayland.
 
-## 1. Arquitectura
+## 1. Architecture
 
 ```
  ┌─────────────── GUI · gui.py (GTK4 + libadwaita) ───────────────┐
- │ genera los controles leyendo profile.features                  │
- │ Worker (hilo HID)  ⇄  GLib.idle_add (hilo de GTK)              │
+ │ generates controls by reading profile.features                 │
+ │ Worker (HID thread)  ⇄  GLib.idle_add (GTK thread)             │
  └───────────────────────────┬────────────────────────────────────┘
                              │ device.execute("set_dpi", dpi=1600)
  ┌───────────────────────────▼──────── Backend ──────────────────┐
- │ device.py    MchoseDevice: abrir/escribir/leer, reintentos,    │
- │              detección de reposo, reapertura tras fallos       │
- │ protocol.py  comando + valores ⇄ frame de bytes (puro, sin E/S)│
- │ hotplug.py   eventos pyudev (o sondeo) → «algo cambió»         │
+ │ device.py    MchoseDevice: open/write/read, retries,            │
+ │              sleep detection, reopen after failures            │
+ │ protocol.py  command + values ⇄ byte frame (pure, no I/O)      │
+ │ hotplug.py   pyudev events (or polling) → “something changed”  │
  └───────────────────────────┬────────────────────────────────────┘
                              │ lee
  ┌───────────────────────────▼──────── Datos ────────────────────┐
  │ profiles/*.json   VID/PID · transporte · comandos · controles  │
  └────────────────────────────────────────────────────────────────┘
-   udevgen.py: perfiles → /etc/udev/rules.d/70-mchose-hub.rules
+   udevgen.py: profiles → /etc/udev/rules.d/70-mchose-hub.rules
 ```
 
-- **Lenguaje: Python.** PyGObject (GTK4/libadwaita) y `hidapi` están empaquetados en las distros principales, así
-  que `install.sh` no compila nada; con Rust habría un binario único, pero GTK4-rs y el empaquetado multi-distro
-  encarecen justo la parte «fácil de instalar». El motor no depende de GTK, así que se podría portar.
-- **Nada específico de MCHOSE en el código:** todo byte vive en un perfil. Añadir un modelo = añadir un `.json`.
-- **Flujo:** hot-plug → `discover()` empareja interfaces HID con perfiles → la GUI crea una página por dispositivo →
-  cada control llama a `execute()` en un hilo trabajador → `protocol.build_frame()` → `hidapi`.
-- **Interfaz correcta:** un teclado expone varias interfaces HID. El perfil fija `usage_page`/`interface_number`;
-  sin ellos sólo se usan interfaces «vendor defined» (≥ `0xFF00`). Así nunca se escribe en la interfaz que teclea.
-- **Robustez:** `DeviceAsleepError` (escribe bien pero no responde: reposo/fuera de alcance), `DeviceDisconnectedError`
-  y `DeviceAccessError` (permisos). Tras un fallo de E/S se reabre el nodo (la ruta `/dev/hidrawN` puede cambiar).
+- **Language: Python.** PyGObject (GTK4/libadwaita) and `hidapi` are packaged by major distributions, so
+  `install.sh` does not compile anything; Rust would provide a single binary, but GTK4-rs and multi-distro
+  packaging make the “easy to install” part more expensive. The engine does not depend on GTK and could be ported.
+- **Nothing MCHOSE-specific in the code:** every byte lives in a profile. Adding a model = adding a `.json` file.
+- **Flow:** hot-plug → `discover()` matches HID interfaces to profiles → the GUI creates one page per device →
+  each control calls `execute()` in a worker thread → `protocol.build_frame()` → `hidapi`.
+- **Correct interface:** a keyboard exposes several HID interfaces. The profile selects `usage_page`/`interface_number`;
+  without them, only “vendor defined” interfaces (≥ `0xFF00`) are used. The typing interface is never written to.
+- **Robustness:** `DeviceAsleepError` (writes successfully but does not respond: asleep/out of range),
+  `DeviceDisconnectedError`, and `DeviceAccessError` (permissions). After an I/O failure the node is reopened
+  (the `/dev/hidrawN` path may change).
 
 ## 2. Estructura de un perfil (`profiles/mchose_mouse_template.json`)
 
